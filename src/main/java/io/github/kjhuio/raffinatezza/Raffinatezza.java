@@ -1,7 +1,7 @@
 package io.github.kjhuio.raffinatezza;
 
 import com.mojang.logging.LogUtils;
-import io.github.kjhuio.raffinatezza.item.Items;
+import io.github.kjhuio.raffinatezza.item.RafItems;
 import io.github.kjhuio.raffinatezza.block.RafBlocks;
 import io.github.kjhuio.raffinatezza.item.RafCreateModeTabs;
 import net.minecraft.client.Minecraft;
@@ -37,7 +37,7 @@ public class Raffinatezza {
         // Do not add this line if there are no @SubscribeEvent-annotated functions in this class, like onServerStarting() below.
         NeoForge.EVENT_BUS.register(this);
 
-        Items.register(modEventBus);
+        RafItems.register(modEventBus);
 
         RafBlocks.register(modEventBus);
 

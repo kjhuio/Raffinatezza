@@ -1,7 +1,7 @@
 package io.github.kjhuio.raffinatezza.block;
 
 import io.github.kjhuio.raffinatezza.Raffinatezza;
-import io.github.kjhuio.raffinatezza.item.Items;
+import io.github.kjhuio.raffinatezza.item.RafItems;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
@@ -55,7 +55,7 @@ public class RafBlocks {
     }
 
     private static <T extends Block> void registerBlockItem(String name,DeferredBlock<T> block) {
-        Items.ITEMS.register(name, () -> new BlockItem(block.get(), new Item.Properties()));
+        RafItems.ITEMS.register(name, () -> new BlockItem(block.get(), new Item.Properties()));
     }
 
     public static void register(IEventBus eventBus) {

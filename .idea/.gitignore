@@ -1,5 +1,8 @@
 # デフォルトの無視対象ファイル
 /shelf/
+/.gradle/
+/run/
+/build/
 /workspace.xml
 # 環境に依存する Maven ホームディレクトリのパス
 /mavenHomeManager.xml
