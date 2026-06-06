@@ -7,7 +7,7 @@ plugins {
 def buildCommit = project.findProperty("build_commit")
 
 version = buildCommit != null
-        ? "${mod_version}-SNAPSHOT+${buildCommit}"
+        ? "SNAPSHOT+${buildCommit}"
         : mod_version
 group = mod_group_id
 
