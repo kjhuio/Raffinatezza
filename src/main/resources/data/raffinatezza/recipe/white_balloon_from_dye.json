@@ -1,0 +1,15 @@
+{
+    "type": "minecraft:crafting_shapeless",
+    "ingredients": [
+        {
+            "tag": "raffinatezza:balloons"
+        },
+        {
+            "item": "minecraft:white_dye"
+        }
+    ],
+    "result": {
+        "id": "raffinatezza:white_balloon",
+        "count": 1
+    }
+}
