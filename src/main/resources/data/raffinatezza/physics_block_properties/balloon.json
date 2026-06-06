@@ -1,0 +1,7 @@
+{
+  "selector": "#raffinatezza:balloons",
+
+  "properties": {
+    "sable:floating_material": "raffinatezza:balloon"
+  }
+}
