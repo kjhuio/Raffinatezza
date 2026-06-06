@@ -3,8 +3,9 @@ name: Build
 on:
   push:
     branches: [ master ]
-  pull_request:
-    branches: [ master ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,11 +23,27 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Build with Gradle
-        run: ./gradlew build
+      - name: Get commit hash
+        id: vars
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Build with Gradle
+        run: |
+          ./gradlew build \
+            -Pbuild_commit=${{ steps.vars.outputs.sha }}
+
+      - name: Delete existing snapshot release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete snapshot -y || true
+          git push origin :refs/tags/snapshot || true
+
+      - name: Create snapshot release
+        uses: softprops/action-gh-release@v2
         with:
-          name: raffinatezza
-          path: build/libs/*.jar
+          tag_name: snapshot
+          name: Latest Snapshot (${{ steps.vars.outputs.sha }})
+          prerelease: true
+          files: build/libs/*.jar

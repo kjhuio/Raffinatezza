@@ -4,8 +4,11 @@ plugins {
     id 'idea'
     id 'net.neoforged.moddev' version '2.0.141'
 }
+def buildCommit = project.findProperty("build_commit")
 
-version = mod_version
+version = buildCommit != null
+        ? "${mod_version}-SNAPSHOT+${buildCommit}"
+        : mod_version
 group = mod_group_id
 
 repositories {
