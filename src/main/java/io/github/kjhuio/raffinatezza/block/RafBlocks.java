@@ -48,6 +48,8 @@ public class RafBlocks {
 
     public static final DeferredBlock<Block> YELLOW_BALLOON = registerBlock("yellow_balloon",() -> new Block(BlockBehaviour.Properties.of().strength(0.8f).sound(SoundType.WOOL)));
 
+    public static final DeferredBlock<Block> HELM = registerBlock("helm", () -> new HelmBlock(BlockBehaviour.Properties.of().strength(2.5f).sound(SoundType.WOOD)));
+
     private static <T extends Block> DeferredBlock<T> registerBlock(String name,Supplier<T> block) {
         DeferredBlock<T> toReturn = BLOCKS.register(name,block);
         registerBlockItem(name,toReturn);

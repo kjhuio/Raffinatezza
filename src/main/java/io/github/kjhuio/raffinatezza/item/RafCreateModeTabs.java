@@ -34,6 +34,7 @@ public class RafCreateModeTabs {
                 output.accept(RafBlocks.RED_BALLOON);
                 output.accept(RafBlocks.WHITE_BALLOON);
                 output.accept(RafBlocks.YELLOW_BALLOON);
+                output.accept(RafBlocks.HELM);
             }))
             .build());
 

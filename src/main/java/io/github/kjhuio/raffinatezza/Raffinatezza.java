@@ -1,9 +1,12 @@
 package io.github.kjhuio.raffinatezza;
 
 import com.mojang.logging.LogUtils;
+import io.github.kjhuio.raffinatezza.client.HelmSeatRenderer;
+import io.github.kjhuio.raffinatezza.entity.RafEntityTypes;
 import io.github.kjhuio.raffinatezza.item.RafItems;
 import io.github.kjhuio.raffinatezza.block.RafBlocks;
 import io.github.kjhuio.raffinatezza.item.RafCreateModeTabs;
+import io.github.kjhuio.raffinatezza.network.HelmInputPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.level.block.Blocks;
@@ -17,8 +20,10 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import org.slf4j.Logger;
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
@@ -31,6 +36,7 @@ public class Raffinatezza {
 
     public Raffinatezza(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(this::commonSetup);
+        modEventBus.addListener(this::registerPayloadHandlers);
 
         // Register ourselves for server and other game events we are interested in.
         // Note that this is necessary if and only if we want *this* class (Raffinatezza) to respond directly to events.
@@ -42,6 +48,8 @@ public class Raffinatezza {
         RafBlocks.register(modEventBus);
 
         RafCreateModeTabs.register(modEventBus);
+
+        RafEntityTypes.register(modEventBus);
 
         // Register the item to a creative tab
         modEventBus.addListener(this::addCreative);
@@ -65,6 +73,11 @@ public class Raffinatezza {
     private void addCreative(BuildCreativeModeTabContentsEvent event) {
     }
 
+    private void registerPayloadHandlers(RegisterPayloadHandlersEvent event) {
+        event.registrar("1")
+                .playToServer(HelmInputPacket.TYPE, HelmInputPacket.CODEC, HelmInputPacket::handle);
+    }
+
     // You can use SubscribeEvent and let the Event Bus discover methods to call
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
@@ -80,6 +93,11 @@ public class Raffinatezza {
             // Some client setup code
             LOGGER.info("HELLO FROM CLIENT SETUP");
             LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
+        }
+
+        @SubscribeEvent
+        public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
+            event.registerEntityRenderer(RafEntityTypes.HELM_SEAT.get(), HelmSeatRenderer::new);
         }
     }
 }
