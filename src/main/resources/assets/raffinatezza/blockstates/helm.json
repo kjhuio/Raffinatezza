@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "raffinatezza:block/helm"
+    },
+    "facing=south": {
+      "model": "raffinatezza:block/helm",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "raffinatezza:block/helm",
+      "y": 270
+    },
+    "facing=east": {
+      "model": "raffinatezza:block/helm",
+      "y": 90
+    }
+  }
+}

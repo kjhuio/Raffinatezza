@@ -4,6 +4,8 @@
     "minecraft:grass_block",
     "minecraft:short_grass",
     "minecraft:stone",
-    "minecraft:deepslate"
+    "minecraft:deepslate",
+    "minecraft:water",
+    "minecraft:lava"
   ]
 }

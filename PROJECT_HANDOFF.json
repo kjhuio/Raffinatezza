@@ -1,0 +1,179 @@
+{
+  "project": {
+    "name": "raffinatezza",
+    "path": "E:/CreatedMods/raffinatezza",
+    "minecraftVersion": "1.21.1",
+    "loader": "NeoForge",
+    "neoForgeVersion": "21.1.231",
+    "sableVersion": "1.2.2",
+    "goal": "Sable sub-level based helm block with Eureka-like ship controls and Create-like invisible seat mounting"
+  },
+  "currentArchitecture": {
+    "library": "Sable",
+    "interactionMatrix": {
+      "helmNotAssembled_rightClick": "Print 'Sneak + Right Click to assemble' and return",
+      "helmNotAssembled_sneakRightClick": "assembleNew: gather connected blocks, create ServerSubLevel. Does NOT mount the player.",
+      "helmAssembled_rightClick": "mountExistingHelm: find or spawn seat at the sub-level's display position (1 block opposite of helm's FACING in sub-level local coords). Mount the player. Sets shiftKeyDown=false on the player to prevent vanilla Player.rideTick from immediately dismounting them while still holding sneak.",
+      "helmAssembled_sneakRightClick": "disassemble: restore all blocks + items to overworld using current sub-level pose, then mark sub-level for removal. Player must dismount first."
+    },
+    "assemblyFlow": [
+      "Player sneak-right-clicks HelmBlock (helm must NOT be in a SubLevel)",
+      "HelmBlock checks getContaining - if present, route to mount or disassemble instead",
+      "HelmBlock gathers connected blocks with SubLevelAssemblyHelper.gatherConnectedBlocks",
+      "Blocks tagged raffinatezza:helm_mask are excluded from connectivity",
+      "SubLevelAssemblyHelper.assembleBlocks creates ServerSubLevel",
+      "No seat is created at this point. Player remains on the ground."
+    ],
+    "mountFlow": [
+      "Player right-clicks HelmBlock that is already in a SubLevel",
+      "HelmBlock calls mountExistingHelm",
+      "mountExistingHelm scans getAllEntities() and rejects if another HelmSeatEntity of the same sub-level is already occupied ('Helm is already occupied')",
+      "If no existing seat: read helm's FACING from sub-level's local block state (subLevel.getLevel().getBlockState(plot.getCenterBlock())), compute seatLocalPos = helmLocalPos + unitVec(opposite of FACING) (i.e., 1 block behind the helm in travel direction), spawn a new HelmSeatEntity at subLevel.logicalPose().transformPosition(seatLocalPos) so it appears at the ship's display position in the overworld, then setSubLevel(subLevel, seatLocalPos) and addFreshEntity",
+      "Player is mounted via setPendingMount (1-5 tick delay) or direct startRiding on an existing seat",
+      "After a successful mount, the player's setShiftKeyDown is set to false (so they can stay mounted while still holding sneak)"
+    ],
+    "dismountFlow": [
+      "If player is sneaking, sneak+right-click on an assembled helm triggers disassemble",
+      "Player must be on the ground (not riding a seat) - otherwise 'Dismount the helm first' is shown",
+      "HelmBlock iterates the sub-level's loaded chunks via PlotChunkHolder",
+      "For each non-air block, transforms plot-local position to world position via logicalPose().transformPosition(Vec3)",
+      "Block is set in overworld via level.setBlock",
+      "BlockEntity NBT is saved via saveWithFullMetadata, coords are rewritten, and re-loaded via BlockEntity.loadStatic",
+      "ItemEntity instances in the sub-level are listed via subLevel.getLevel().getEntitiesOfClass(ItemEntity.class, plot AABB) and re-spawned in the overworld with transformed position and velocity",
+      "subLevel.getPlot() (cast to ServerLevelPlot).destroyAllBlocks() and subLevel.deleteAllEntities() clear the plot",
+      "subLevel.markRemoved() queues it for processSubLevelRemovals",
+      "Existing HelmSeatEntity instances become orphaned: resolveSubLevel returns null, missingSubLevelTicks increments, and the seat is auto-discarded after 20 ticks"
+    ],
+    "disassemblyCaveats": [
+      "Best-effort: uses the CURRENT sub-level pose. If the ship has been flown far from the original assembly spot, the disassembled blocks appear at the ship's current position.",
+      "If a chunk is unloaded (rare for a dedicated plot), its blocks are NOT restored.",
+      "BlockEntity NBT restore uses saveWithFullMetadata and re-loads - works for chests, signs, etc.",
+      "Mobs and other non-item entities are NOT explicitly moved. They are deleted with deleteAllEntities.",
+      "Player currently riding the seat is rejected with 'Dismount the helm first'."
+    ],
+    "seatModel": {
+      "entity": "HelmSeatEntity",
+      "renderer": "HelmSeatRenderer",
+      "visibility": "Invisible entity; renderer exists only to satisfy client renderer lookup",
+      "mountingStyle": "Create-like invisible seat entity that lives in the overworld but is manually positioned every tick to subLevel.logicalPose().transformPosition(seatLocalPos), where seatLocalPos is computed once at mount time as (helmLocalPos + 1 block opposite the helm's FACING in sub-level local coords).",
+      "passengerPositioning": "Minecraft 1.21 EntityType.Builder.passengerAttachments(Vec3.ZERO)",
+      "sableCompatibility": "Seat is in the overworld ServerLevel (not in sub-level storage). It does NOT use Sable's plotPosition mechanism because the overworld chunk lookup for sub-level local coords (0,0,0) misses the plot's far-away storage chunks and clears plotPosition. Manual position update each tick is used instead.",
+      "shiftConsumption": "After successful startRiding, player.setShiftKeyDown(false) is called on both code paths (mountExistingHelm direct path and HelmSeatEntity.tick pending-mount path) to defeat vanilla Player.rideTick's wantsToStopRiding() check."
+    },
+    "controlLoop": {
+      "input": "HelmClientHandler sends HelmInputPacket when key states change",
+      "serverHandler": "HelmInputPacket::handle updates HelmSeatEntity input booleans only for the current passenger",
+      "physics": "HelmSeatEntity.tick resolves ServerSubLevel and applies corrections through RigidBodyHandle.addLinearAndAngularVelocity",
+      "seatPositioning": "Each tick, HelmSeatEntity.tick calls updatePositionToSubLevel() which sets the seat's world position to subLevel.logicalPose().transformPosition(localPos). The localPos is sub-level local and was computed at mount time (1 block opposite helm FACING). This makes the seat follow the ship as it moves and rotates.",
+      "forwardVector": "applyHelmControls() calls helmForwardVector(subLevel) which reads the helm's FACING from sub-level's local block state, converts to a local Vector3d (e.g., NORTH -> (0,0,-1)), then transforms to world via subLevel.logicalPose().transformNormal(...). The seat applies thrust along this transformed forward so that W moves the ship in the helm's intended travel direction regardless of ship orientation.",
+      "clientCameraRotation": "HelmCameraMixin (Mixin into net.minecraft.client.renderer.GameRenderer.renderLevel at HEAD) runs every render frame (60+ FPS) while the local player rides a HelmSeatEntity. Each frame, it reads subLevel.renderPose().orientation() - the INTERPOLATED render pose, not the logical end-of-tick pose - and computes a per-frame yaw delta via relative = current * inverse(lastOrientation), then 2*relative.y/relative.w. This gives a smooth, sub-tick rotation delta. The previous ClientTickEvent-based implementation caused visible per-tick stepping because it sampled the non-interpolated logical pose at 20Hz. The mixin applies the delta to player.yBodyRot, yBodyRotO, yHeadRot, yHeadRotO, yRot (via setYRot), and yRotO. lastOrientation and lastSubLevelId reset when the player dismounts or the sub-level cannot be resolved. Mixin pattern copied from Sable's own entities_turn_with_sub_levels/GameRendererMixin; ours targets HelmSeatEntity passengers instead of standing players."
+    },
+    "sableIntegration": {
+      "entityKickingAvoidance": "HelmBlock prevents assembly if Helm is already in a SubLevel",
+      "seatSpawnStrategy": "Seat is created in the overworld ServerLevel at the helm's current display position (computed from sub-level pose), and is repositioned every tick to follow the sub-level's pose. It never moves into the sub-level's plot storage area.",
+      "coordinateHandling": "Seat stores Vec3 localPos in sub-level local coords (1 block opposite helm FACING). Each tick, world position is recomputed as subLevel.logicalPose().transformPosition(localPos). Sub-level local is consistent: helm is always at plot.getCenterBlock() in sub-level local regardless of how the sub-level has been flown or rotated.",
+      "retainTag": "src/main/resources/data/sable/tags/entity_type/retain_in_sub_level.json includes raffinatezza:helm_seat as a safety net.",
+      "plotPositionNotUsed": "Sable's plotPosition mechanism (EntityMixin.sable$updateSubLevelPosition) does a chunk lookup in this.level for sub-level local coords. For an overworld entity at local (0,0,0), the lookup computes overworld chunk (0,0) which is not in the plot (plot chunks are at ~1280000+). The lookup misses, plotPosition is cleared, and the entity would be kicked. This mechanism is designed for entities in the sub-level's storage area, not for overworld display-area entities. We avoid it entirely.",
+      "clientSubLevelLookup": "On the client, the sub-level for the seat is found by UUID via ClientSubLevelContainer.getContainer(player.level()).getSubLevel(uuid). logicalPose() on ClientSubLevel returns the same Pose3d as ServerSubLevel after replication.",
+      "disassembleApi": "Sable 1.2.2 has no public disassemble API. We iterate plot.getLoadedChunks() and use subLevel.getLevel() to access the underlying Level for block/entity reads. Disassemble rejects if any HelmSeatEntity of the same sub-level is currently occupied ('A pilot is still at the helm')."
+    },
+    "helmTexture": {
+      "model": "src/main/resources/assets/raffinatezza/models/block/helm.json",
+      "parent": "minecraft:block/cube",
+      "seatSideFace": "minecraft:block/dark_oak_planks (the face the player is sitting behind - indicates the back of the helm where the captain stands). Model 'south' face is the seat side for ALL 4 FACING values because of the blockstate y-rotation mapping.",
+      "otherFaces": "minecraft:block/oak_planks (default helm body)"
+    }
+  },
+  "importantFiles": {
+    "mainMod": "src/main/java/io/github/kjhuio/raffinatezza/Raffinatezza.java",
+    "helmBlock": "src/main/java/io/github/kjhuio/raffinatezza/block/HelmBlock.java",
+    "helmSeatEntity": "src/main/java/io/github/kjhuio/raffinatezza/entity/HelmSeatEntity.java",
+    "entityTypes": "src/main/java/io/github/kjhuio/raffinatezza/entity/RafEntityTypes.java",
+    "clientInput": "src/main/java/io/github/kjhuio/raffinatezza/client/HelmClientHandler.java",
+    "keybinds": "src/main/java/io/github/kjhuio/raffinatezza/client/HelmKeybinds.java",
+    "renderer": "src/main/java/io/github/kjhuio/raffinatezza/client/HelmSeatRenderer.java",
+    "packet": "src/main/java/io/github/kjhuio/raffinatezza/network/HelmInputPacket.java",
+    "helmCameraMixin": "src/main/java/io/github/kjhuio/raffinatezza/mixin/client/HelmCameraMixin.java",
+    "mixinConfig": "src/main/resources/raffinatezza.mixins.json",
+    "maskTag": "src/main/resources/data/raffinatezza/tags/block/helm_mask.json",
+    "sableRetainTag": "src/main/resources/data/sable/tags/entity_type/retain_in_sub_level.json",
+    "helmBlockModel": "src/main/resources/assets/raffinatezza/models/block/helm.json",
+    "helmBlockstate": "src/main/resources/assets/raffinatezza/blockstates/helm.json",
+    "modsToml": "src/main/templates/META-INF/neoforge.mods.toml",
+    "handoff": "PROJECT_HANDOFF.json"
+  },
+  "controls": {
+    "forward": "W",
+    "backward": "S",
+    "left": "A",
+    "right": "D",
+    "ascend": "Space",
+    "descend": "V"
+  },
+  "physicsTuning": {
+    "CRUISE_SPEED": 8.0,
+    "VERTICAL_SPEED": 5.0,
+    "YAW_SPEED": 1.2,
+    "LINEAR_RESPONSE": 0.28,
+    "VERTICAL_RESPONSE": 0.35,
+    "YAW_RESPONSE": 0.45,
+    "LINEAR_DAMPING": 0.1,
+    "ANGULAR_DAMPING": 0.22,
+    "LEVELING_STRENGTH": 0.08,
+    "MAX_LINEAR_SPEED": 12.0,
+    "MAX_ANGULAR_SPEED": 2.0
+  },
+  "knownFixes": [
+    "Removed old 1.20-style passenger positioning overrides: positionRider, getPassengersRidingOffset, MoveFunction are not present.",
+    "Registered HelmSeatRenderer to avoid EntityRenderDispatcher null renderer crashes.",
+    "Registered HelmInputPacket through RegisterPayloadHandlersEvent.",
+    "Seat stores Sable sub-level UUID and has a 20 tick grace period before discard if the sub-level cannot be resolved.",
+    "Auto-mount uses setPendingMount with 1-5 tick delay (startRiding fails immediately after addFreshEntity).",
+    "Helm seat EntityType uses sized(0.75, 0.35) and passengerAttachments(Vec3.ZERO) for 1.21 passenger placement.",
+    "CRITICAL: HelmBlock checks Sable.HELPER.getContaining(serverLevel, pos) before assembly - prevents recursive SubLevel nesting.",
+    "CRITICAL: Seat spawns to overworld ServerLevel with setPos BEFORE addFreshEntity to avoid Sable entity kicking on spawn.",
+    "CRITICAL: Seat position is recomputed every tick from subLevel.logicalPose().transformPosition(localPos) so it follows the ship as it moves and rotates (was previously fixed at helmWorldX/Y/Z, leaving the player stranded at the assembly spot).",
+    "Added raffinatezza:helm_seat to sable:retain_in_sub_level tag as safety net against accidental kicks.",
+    "FIXED: Vanilla Player.rideTick() dismounts player if isShiftKeyDown() - workaround is player.setShiftKeyDown(false) after successful startRiding, applied in BOTH HelmBlock.mountExistingHelm (direct path) and HelmSeatEntity.tick (pending-mount path).",
+    "REFACTORED: Split assemble (sneak+right-click) and mount (right-click) into separate code paths. Assemble no longer creates a seat or mounts the player.",
+    "ADDED: Disassemble on sneak+right-click of an assembled helm. Iterates loaded chunks, restores blocks + BlockEntity NBT + ItemEntity to overworld using current sub-level pose, then marks sub-level for removal.",
+    "ADDED: Helm seat-side face (model 'south', which is the back-of-helm / captain-side for ALL 4 FACINGs after the blockstate y-rotation mapping) now uses dark_oak_planks texture. Other faces (north/east/west/up/down) use oak_planks. The player sitting on the seat sees the dark_oak face directly in front of them, indicating the helm's back.",
+    "FIXED: Forward thrust is now helm-relative. helmForwardVector(subLevel) reads the helm's FACING from sub-level's local block state and transforms it through subLevel.logicalPose().transformNormal(...) so W moves the ship in the helm's intended travel direction regardless of how the sub-level has rotated.",
+    "FIXED: Seat position is 1 block opposite of helm's FACING in sub-level local coords. Direction map: NORTH helm -> seat at +Z, SOUTH helm -> seat at -Z, WEST helm -> seat at +X, EAST helm -> seat at -X. Seat Y is helmY + 0.5.",
+    "FIXED: Camera yaw rotates with the sub-level on the client. The previous implementation used HelmClientHandler.onClientTick (20Hz) with subLevel.logicalPose() (non-interpolated), which caused visible per-tick stepping/jitter. Replaced with a per-frame GameRenderer.renderLevel mixin (HelmCameraMixin) that samples subLevel.renderPose() (interpolated) and applies a smooth sub-tick yaw delta to player.yBodyRot/yBodyRotO/yHeadRot/yHeadRotO/yRot/yRotO. Required because the seat is in the overworld so Sable's vehicle-camera mixins (EntitySubLevelRotationHelper) do not match it.",
+    "ADDED: mountExistingHelm refuses to mount if another HelmSeatEntity of the same sub-level is already occupied ('Helm is already occupied').",
+    "ADDED: disassemble refuses to disassemble if any HelmSeatEntity of the same sub-level is currently occupied ('A pilot is still at the helm')."
+  ],
+  "nextRecommendedWork": [
+    "Run ./gradlew.bat runClient and verify the four reported issues are fixed: (1) player follows the ship as it moves, (2) W moves the ship in the helm's FACING direction (test by rotating the ship 180 then pressing W), (3) seat spawns 1 block opposite the helm's FACING for all four FACINGs, (4) player view yaw rotates SMOOTHLY (no per-tick jitter) with the sub-level on turns.",
+    "Verify the dark_oak face is on the side the player is sitting (behind the helm) for all 4 FACINGs. The player should see the dark_oak face directly in front of them while seated.",
+    "If the camera rotation now goes the wrong direction (view rotates opposite to the ship), flip the sign on the delta in HelmCameraMixin: change all `-= deltaDeg` to `+= deltaDeg` and `setYRot(getYRot() - deltaDeg)` to `setYRot(getYRot() + deltaDeg)`.",
+    "Verify the occupied-seat guards: trying to right-click the helm while another pilot is mounted, and trying to sneak+right-click the helm while a pilot is mounted, both print the new error messages instead of silently failing.",
+    "Verify dismount puts the player at a sensible position. Sable's LivingEntityMixin.sable$onDismountVehicle transform the dismount location through the sub-level pose, so getDismountLocationForPassenger returning position().add(1.5, 0, 0) should land the player just outside the ship.",
+    "Verify disassemble still restores blocks + BlockEntity NBT + ItemEntity correctly at the ship's current (possibly flown) position.",
+    "Tune Eureka-like handling constants by feel.",
+    "Optional: implement full-fidelity disassemble that resets sub-level pose to the initial assembly pose before extracting blocks (so the ship always returns to its origin).",
+    "Replace deprecated EventBusSubscriber.Bus.MOD usage later."
+  ],
+  "verification": {
+    "lastKnownCompileCommand": "./gradlew.bat compileJava --offline && ./gradlew.bat processResources --offline",
+    "lastKnownCompileResult": "BUILD SUCCESSFUL after switching camera rotation to a per-frame GameRenderer.renderLevel mixin (HelmCameraMixin) that samples the interpolated sub-level renderPose. This eliminates the per-tick stepping that the previous ClientTickEvent + logicalPose-based implementation produced.",
+    "remainingWarnings": [
+      "EventBusSubscriber.bus()/EventBusSubscriber.Bus.MOD is deprecated/removal-marked in existing NeoForge API usage.",
+      "LSP shows 'Unsupported class file major version 69' warnings because Gradle 8.8 uses an older source level than Java 25.0.1. These are pre-existing and unrelated to this session's edits; ignore."
+    ],
+    "keyIssuesResolved": [
+      "Player was teleported to SubLevel plot coordinates (20481032) - Fixed by preventing assembly in SubLevels and locking seat to original world coords",
+      "Player kicked from seat after mounting (1-2 ticks) - Fixed by player.setShiftKeyDown(false) immediately after successful startRiding, applied in both direct mount and pending-mount paths",
+      "Seat spawning triggered Sable entity kicking - Fixed by setting position before addFreshEntity and blocking nested assembly",
+      "Assemble+mount on the same click was confusing and triggered the sneak-dismount bug - Fixed by splitting into separate right-click (mount) and sneak+right-click (assemble) actions",
+      "No way to take the helm apart once assembled - Fixed by adding disassemble on sneak+right-click that restores blocks, BlockEntity NBT, and ItemEntity to the overworld",
+      "REPORTED: Player position stayed at the assembly location while piloting - Fixed by removing the fixed helmWorldX/Y/Z lock and instead recomputing the seat's world position every tick from subLevel.logicalPose().transformPosition(localPos).",
+      "REPORTED: W key moved the ship in world-relative direction instead of helm-relative - Fixed by reading the helm's FACING from sub-level's local block state, converting to a local Vector3d, and transforming to world via subLevel.logicalPose().transformNormal(...) for thrust application.",
+      "REPORTED: Seat was at the helm's center, not 1 block behind - Fixed by computing seatLocalPos = helmLocalPos + unitVec(opposite of helm FACING) at mount time. Direction map: NORTH->+Z, SOUTH->-Z, WEST->+X, EAST->-X. Seat Y is helmY + 0.5.",
+      "REPORTED: Player view did not rotate with the sub-level - Fixed by HelmClientHandler.applySubLevelYawRotation, which applies a per-tick yaw delta (extracted from sub-level orientation via current * inverse(lastOrientation)) to player.yBodyRot/yBodyRotO/yHeadRot/yHeadRotO/yRot/yRotO.",
+      "REPORTED: Camera rotated but felt jerky / 'gaku gaku' (per-tick stepping) - Fixed by moving the rotation logic from a 20Hz ClientTickEvent to a 60Hz per-frame GameRenderer.renderLevel mixin (HelmCameraMixin) and switching from subLevel.logicalPose() (end-of-tick, non-interpolated) to subLevel.renderPose() (interpolated between last and current tick). Mixin pattern matches Sable's own GameRendererMixin but targets HelmSeatEntity passengers instead of standing players.",
+      "REPORTED: Helm texture was confusing - dark_oak was on the FACING side (away from the player), so the player couldn't see the indicator. Fixed by swapping model 'north' and 'south' textures: 'south' is now dark_oak_planks and the rest are oak_planks. Due to the blockstate y-rotation mapping (north=0, south=180, west=270, east=90), the model 'south' face is the SEAT side (opposite of FACING) for ALL 4 FACING values, so the dark_oak face is always the back-of-helm / captain-side face the player sees in front of them while seated."
+    ]
+  }
+}

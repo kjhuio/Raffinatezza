@@ -11,8 +11,6 @@ public class HelmSeatRenderer extends EntityRenderer<HelmSeatEntity> {
         super(context);
     }
 
-    // 不可視エンティティなので描画は何もしない
-    // getTextureLocation は抽象メソッドなので実装だけ必要
     @Override
     public ResourceLocation getTextureLocation(HelmSeatEntity entity) {
         return ResourceLocation.withDefaultNamespace("textures/block/air.png");

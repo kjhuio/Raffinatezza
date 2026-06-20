@@ -1,15 +1,22 @@
 package io.github.kjhuio.raffinatezza.network;
 
-import io.github.kjhuio.raffinatezza.entity.HelmSeatEntity;
+import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
+import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
+import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
+import org.joml.Vector3d;
+import io.github.kjhuio.raffinatezza.entity.HelmSeatEntity;
+
+import java.util.UUID;
 
 public record HelmInputPacket(
-        int entityId,
+        UUID subLevelId,
         boolean forward,  boolean backward,
         boolean left,     boolean right,
         boolean up,       boolean down
@@ -21,7 +28,7 @@ public record HelmInputPacket(
     public static final StreamCodec<FriendlyByteBuf, HelmInputPacket> CODEC =
             StreamCodec.of(
                     (buf, pkt) -> {
-                        buf.writeInt(pkt.entityId());
+                        buf.writeUUID(pkt.subLevelId());
                         buf.writeByte(
                                 (pkt.forward()   ? 1  : 0) |
                                         (pkt.backward()  ? 2  : 0) |
@@ -32,10 +39,10 @@ public record HelmInputPacket(
                         );
                     },
                     buf -> {
-                        int entityId = buf.readInt();
+                        UUID subLevelId = buf.readUUID();
                         int flags    = buf.readByte();
                         return new HelmInputPacket(
-                                entityId,
+                                subLevelId,
                                 (flags & 1)  != 0,
                                 (flags & 2)  != 0,
                                 (flags & 4)  != 0,
@@ -51,18 +58,53 @@ public record HelmInputPacket(
         return TYPE;
     }
 
+    private static Vector3d helmForwardVector(ServerSubLevel subLevel) {
+        net.minecraft.core.BlockPos helmLocalPos = subLevel.getPlot().getCenterBlock();
+        net.minecraft.world.level.block.state.BlockState helmState = subLevel.getLevel().getBlockState(helmLocalPos);
+
+        net.minecraft.core.Direction facing = net.minecraft.core.Direction.NORTH;
+        if (helmState.hasProperty(net.minecraft.world.level.block.HorizontalDirectionalBlock.FACING)) {
+            facing = helmState.getValue(net.minecraft.world.level.block.HorizontalDirectionalBlock.FACING);
+        }
+
+        Vector3d helmLocalForward = switch (facing) {
+            case NORTH -> new Vector3d(0, 0, -1);
+            case SOUTH -> new Vector3d(0, 0, 1);
+            case WEST -> new Vector3d(-1, 0, 0);
+            case EAST -> new Vector3d(1, 0, 0);
+            default -> new Vector3d(0, 0, -1);
+        };
+        return subLevel.logicalPose().transformNormal(helmLocalForward);
+    }
+
     public static void handle(HelmInputPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
 
-            if (player.level().getEntity(pkt.entityId()) instanceof HelmSeatEntity seat
-                    && seat.getFirstPassenger() == player) {
-                seat.inputForward  = pkt.forward();
+            ServerLevel serverLevel = player.serverLevel();
+            ServerSubLevelContainer container = SubLevelContainer.getContainer(serverLevel);
+            if (container == null) return;
+
+            ServerSubLevel subLevel = (ServerSubLevel) container.getSubLevel(pkt.subLevelId());
+            if (subLevel == null || subLevel.isRemoved()) return;
+
+            // Find the HelmSeatEntity associated with this sub-level and update its input state.
+            HelmSeatEntity seat = null;
+            for (var entity : serverLevel.getAllEntities()) {
+                if (entity instanceof HelmSeatEntity helmSeat) {
+                    if (helmSeat.getSubLevelId() != null && helmSeat.getSubLevelId().equals(subLevel.getUniqueId())) {
+                        seat = helmSeat;
+                        break;
+                    }
+                }
+            }
+            if (seat != null) {
+                seat.inputForward = pkt.forward();
                 seat.inputBackward = pkt.backward();
-                seat.inputLeft     = pkt.left();
-                seat.inputRight    = pkt.right();
-                seat.inputUp       = pkt.up();
-                seat.inputDown     = pkt.down();
+                seat.inputLeft = pkt.left();
+                seat.inputRight = pkt.right();
+                seat.inputUp = pkt.up();
+                seat.inputDown = pkt.down();
             }
         });
     }

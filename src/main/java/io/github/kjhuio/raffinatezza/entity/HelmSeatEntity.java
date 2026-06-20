@@ -1,13 +1,15 @@
 package io.github.kjhuio.raffinatezza.entity;
 
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
-import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
-import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.plot.PlotChunkHolder;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -15,6 +17,10 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3d;
 
@@ -22,18 +28,10 @@ import java.util.UUID;
 
 public class HelmSeatEntity extends Entity {
 
-    // ヘルムのプロット空間での座標（アセンブル後のplot内座標）
     private UUID subLevelId;
     private int missingSubLevelTicks;
+    private Vec3 localPos = new Vec3(0, 0, 0);
 
-    // アセンブル前のHelmブロックのワールド座標（シートの固定位置）
-    private double helmWorldX, helmWorldY, helmWorldZ;
-
-    // スポーン直後のマウント待ち（addFreshEntityの次tick以降でstartRidingする）
-    private UUID pendingMountPlayer;
-    private int pendingMountTicks;
-
-    // 入力状態（パケットで更新）
     public boolean inputForward, inputBackward, inputLeft, inputRight, inputUp, inputDown;
 
     private static final int MAX_MISSING_SUB_LEVEL_TICKS = 20;
@@ -45,36 +43,32 @@ public class HelmSeatEntity extends Entity {
     private static final double YAW_RESPONSE = 0.45;
     private static final double LINEAR_DAMPING = 0.10;
     private static final double ANGULAR_DAMPING = 0.22;
-    private static final double LEVELING_STRENGTH = 0.08;
+    private static final double LEVELING_STRENGTH = 0.12;
+    private static final double GROUND_CLEARANCE = 0.08;
     private static final double MAX_LINEAR_SPEED = 12.0;
     private static final double MAX_ANGULAR_SPEED = 2.0;
+    private static final TagKey<Block> BALLOONS =
+            TagKey.create(Registries.BLOCK,
+                    ResourceLocation.fromNamespaceAndPath("raffinatezza", "balloons"));
 
     public HelmSeatEntity(EntityType<?> type, Level level) {
         super(type, level);
         this.noPhysics = true;
         this.setNoGravity(true);
-        this.setInvisible(true); // モデルなし
+        this.setInvisible(true);
     }
 
-    public void setHelmPlotPos(BlockPos pos) {
-        // 未使用（後方互換のため残す）
-    }
-
-    public void setSubLevel(ServerSubLevel subLevel, Vec3 seatWorldPos) {
+    public void setSubLevel(ServerSubLevel subLevel, Vec3 localPos) {
         this.subLevelId = subLevel.getUniqueId();
-        // 座席のワールド座標を保存（毎tickここに固定される）
-        this.helmWorldX = seatWorldPos.x;
-        this.helmWorldY = seatWorldPos.y;
-        this.helmWorldZ = seatWorldPos.z;
+        this.localPos = localPos;
     }
 
     public UUID getSubLevelId() {
         return subLevelId;
     }
 
-    public void setPendingMount(net.minecraft.server.level.ServerPlayer player) {
-        this.pendingMountPlayer = player.getUUID();
-        this.pendingMountTicks = 0;
+    public Vec3 getLocalPos() {
+        return localPos;
     }
 
     @Override
@@ -82,10 +76,12 @@ public class HelmSeatEntity extends Entity {
         super.tick();
         if (level().isClientSide) return;
 
-        ServerLevel serverLevel = (ServerLevel) level();
-
-        ServerSubLevel subLevel = resolveSubLevel(serverLevel);
+        ServerSubLevel subLevel = resolveSubLevel();
         if (subLevel == null || subLevel.isRemoved()) {
+            Entity passenger = getFirstPassenger();
+            if (passenger != null) {
+                passenger.stopRiding();
+            }
             if (++missingSubLevelTicks > MAX_MISSING_SUB_LEVEL_TICKS) {
                 discard();
             }
@@ -93,52 +89,51 @@ public class HelmSeatEntity extends Entity {
         }
         missingSubLevelTicks = 0;
 
-        // シートをHelmブロックの元のワールド座標に固定（SubLevelのplot内に入らないようにする）
-        setPos(helmWorldX, helmWorldY, helmWorldZ);
-
-        // スポーン直後のマウント処理（最大5tick試みる）
-        if (pendingMountPlayer != null) {
-            pendingMountTicks++;
-            var player = serverLevel.getPlayerByUUID(pendingMountPlayer);
-            if (player != null && getFirstPassenger() == null) {
-                boolean success = player.startRiding(this, true);
-                if (level().isClientSide == false) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                        "Mount attempt " + pendingMountTicks + ": " + (success ? "SUCCESS" : "FAILED")));
-                }
-            }
-            if (getFirstPassenger() != null || pendingMountTicks > 5) {
-                if (level().isClientSide == false && player != null) {
-                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
-                        "Mount " + (getFirstPassenger() != null ? "complete" : "failed after 5 tries")));
-                }
-                pendingMountPlayer = null;
-            }
-        }
-
         if (getFirstPassenger() instanceof Player) {
             applyHelmControls(subLevel);
         } else {
             clearInputs();
-            stabilize(subLevel, false, false, false, false, false, false);
+            stabilize(subLevel);
         }
+
+        // ✅ SABLE INTEGRATION: Position and camera rotation are handled automatically by Sable's EntitySubLevelRotationHelper
+        // No manual position updates or camera rotation needed here
     }
 
-    private ServerSubLevel resolveSubLevel(ServerLevel level) {
+    private ServerSubLevel resolveSubLevel() {
         if (subLevelId == null) return null;
-        ServerSubLevelContainer container = SubLevelContainer.getContainer(level);
+        dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer container =
+                dev.ryanhcode.sable.api.sublevel.SubLevelContainer.getContainer((net.minecraft.server.level.ServerLevel) level());
         if (container != null && container.getSubLevel(subLevelId) instanceof ServerSubLevel subLevel) {
             return subLevel;
         }
         return null;
     }
 
+    private Vector3d helmForwardVector(ServerSubLevel subLevel) {
+        BlockPos helmLocalPos = subLevel.getPlot().getCenterBlock();
+        BlockState helmState = subLevel.getLevel().getBlockState(helmLocalPos);
+
+        Direction facing = Direction.NORTH;
+        if (helmState.hasProperty(net.minecraft.world.level.block.HorizontalDirectionalBlock.FACING)) {
+            facing = helmState.getValue(net.minecraft.world.level.block.HorizontalDirectionalBlock.FACING);
+        }
+
+        Vector3d helmLocalForward = switch (facing) {
+            case NORTH -> new Vector3d(0, 0, -1);
+            case SOUTH -> new Vector3d(0, 0, 1);
+            case WEST -> new Vector3d(-1, 0, 0);
+            case EAST -> new Vector3d(1, 0, 0);
+            default -> new Vector3d(0, 0, -1);
+        };
+        return subLevel.logicalPose().transformNormal(helmLocalForward);
+    }
+
     private void applyHelmControls(ServerSubLevel subLevel) {
         RigidBodyHandle handle = RigidBodyHandle.of(subLevel);
         if (handle == null || !handle.isValid()) return;
 
-        // 船の向きを基準にした方向ベクトル
-        Vector3d forward = subLevel.logicalPose().transformNormal(new Vector3d(0, 0, -1));
+        Vector3d forward = helmForwardVector(subLevel);
         forward.y = 0.0;
         if (forward.lengthSquared() < 1.0E-6) {
             forward.set(0, 0, -1);
@@ -150,16 +145,18 @@ public class HelmSeatEntity extends Entity {
         Vector3d angularVelocity = handle.getAngularVelocity(new Vector3d());
         Vector3d linearCorrection = new Vector3d();
         Vector3d angularCorrection = new Vector3d();
+        boolean hasBalloons = hasBalloonBlocks(subLevel);
+        boolean grounded = isGrounded(subLevel);
 
         int throttle = (inputForward ? 1 : 0) - (inputBackward ? 1 : 0);
-        if (throttle != 0) {
+        if (throttle != 0 && !grounded) {
             Vector3d targetHorizontal = new Vector3d(forward).mul(CRUISE_SPEED * throttle);
             Vector3d currentHorizontal = new Vector3d(linearVelocity.x, 0.0, linearVelocity.z);
             linearCorrection.add(targetHorizontal.sub(currentHorizontal).mul(LINEAR_RESPONSE));
         }
 
         int lift = (inputUp ? 1 : 0) - (inputDown ? 1 : 0);
-        if (lift != 0) {
+        if (lift != 0 && hasBalloons) {
             linearCorrection.y += ((VERTICAL_SPEED * lift) - linearVelocity.y) * VERTICAL_RESPONSE;
         }
 
@@ -170,7 +167,19 @@ public class HelmSeatEntity extends Entity {
 
         addLevelingCorrection(subLevel, angularVelocity, angularCorrection);
         handle.addLinearAndAngularVelocity(linearCorrection, angularCorrection);
-        stabilize(subLevel, inputForward, inputBackward, inputLeft, inputRight, inputUp, inputDown);
+        stabilize(
+                subLevel,
+                inputForward && !grounded,
+                inputBackward && !grounded,
+                inputLeft,
+                inputRight,
+                inputUp && hasBalloons,
+                inputDown && hasBalloons
+        );
+    }
+
+    private void stabilize(ServerSubLevel subLevel) {
+        stabilize(subLevel, false, false, false, false, false, false);
     }
 
     private void stabilize(ServerSubLevel subLevel, boolean forward, boolean backward,
@@ -215,6 +224,46 @@ public class HelmSeatEntity extends Entity {
         }
     }
 
+    private boolean hasBalloonBlocks(ServerSubLevel subLevel) {
+        for (PlotChunkHolder chunkHolder : subLevel.getPlot().getLoadedChunks()) {
+            LevelChunk chunk = chunkHolder.getChunk();
+            if (chunk == null) continue;
+
+            var chunkPos = chunk.getPos();
+            int baseX = chunkPos.x << 4;
+            int baseZ = chunkPos.z << 4;
+            Level subLevelAsLevel = subLevel.getLevel();
+
+            for (int x = 0; x < 16; x++) {
+                for (int z = 0; z < 16; z++) {
+                    for (int y = subLevelAsLevel.getMinBuildHeight(); y < subLevelAsLevel.getMaxBuildHeight(); y++) {
+                        if (subLevelAsLevel.getBlockState(new BlockPos(baseX + x, y, baseZ + z)).is(BALLOONS)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isGrounded(ServerSubLevel subLevel) {
+        AABB bounds = subLevel.boundingBox().toMojang();
+        double y = bounds.minY - GROUND_CLEARANCE;
+        return hasCollisionBelow(bounds.minX, y, bounds.minZ)
+                || hasCollisionBelow(bounds.minX, y, bounds.maxZ)
+                || hasCollisionBelow(bounds.maxX, y, bounds.minZ)
+                || hasCollisionBelow(bounds.maxX, y, bounds.maxZ)
+                || hasCollisionBelow((bounds.minX + bounds.maxX) * 0.5, y,
+                (bounds.minZ + bounds.maxZ) * 0.5);
+    }
+
+    private boolean hasCollisionBelow(double x, double y, double z) {
+        BlockPos pos = BlockPos.containing(x, y, z);
+        BlockState state = level().getBlockState(pos);
+        return !state.getCollisionShape(level(), pos).isEmpty();
+    }
+
     private static void addSpeedLimitCorrection(Vector3d velocity, Vector3d correction, double maxSpeed) {
         double speed = velocity.length();
         if (speed > maxSpeed) {
@@ -231,7 +280,6 @@ public class HelmSeatEntity extends Entity {
         inputDown = false;
     }
 
-    // 右クリックで乗車
     @Override
     public InteractionResult interact(Player player, InteractionHand hand) {
         if (!level().isClientSide && getFirstPassenger() == null) {
@@ -246,6 +294,8 @@ public class HelmSeatEntity extends Entity {
 
     @Override
     public Vec3 getDismountLocationForPassenger(LivingEntity passenger) {
+        // Return position relative to seat (in plot space)
+        // Sable will automatically transform this to world coords when dismounting
         return position().add(1.5, 0, 0);
     }
 
@@ -254,21 +304,25 @@ public class HelmSeatEntity extends Entity {
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {
-        helmWorldX = tag.getDouble("hwx");
-        helmWorldY = tag.getDouble("hwy");
-        helmWorldZ = tag.getDouble("hwz");
         if (tag.hasUUID("sub_level")) {
             subLevelId = tag.getUUID("sub_level");
+        }
+        if (tag.contains("local_x")) {
+            localPos = new Vec3(
+                    tag.getDouble("local_x"),
+                    tag.getDouble("local_y"),
+                    tag.getDouble("local_z"));
         }
     }
 
     @Override
     protected void addAdditionalSaveData(CompoundTag tag) {
-        tag.putDouble("hwx", helmWorldX);
-        tag.putDouble("hwy", helmWorldY);
-        tag.putDouble("hwz", helmWorldZ);
         if (subLevelId != null) {
             tag.putUUID("sub_level", subLevelId);
         }
+        tag.putDouble("local_x", localPos.x);
+        tag.putDouble("local_y", localPos.y);
+        tag.putDouble("local_z", localPos.z);
     }
 }
+

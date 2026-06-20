@@ -1,0 +1,93 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Client",
+      "presentation": {
+        "group": "Mod Development - raffinatezza",
+        "order": 0
+      },
+      "projectName": "raffinatezza",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\clientRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\clientRunVmArgs.txt",
+        "-Dfml.modFolders\u003draffinatezza%%E:\\CreatedMods\\raffinatezza\\bin\\main"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {},
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Data",
+      "presentation": {
+        "group": "Mod Development - raffinatezza",
+        "order": 1
+      },
+      "projectName": "raffinatezza",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\dataRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\dataRunVmArgs.txt",
+        "-Dfml.modFolders\u003draffinatezza%%E:\\CreatedMods\\raffinatezza\\bin\\main"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {},
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "GameTestServer",
+      "presentation": {
+        "group": "Mod Development - raffinatezza",
+        "order": 2
+      },
+      "projectName": "raffinatezza",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\gameTestServerRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\gameTestServerRunVmArgs.txt",
+        "-Dfml.modFolders\u003draffinatezza%%E:\\CreatedMods\\raffinatezza\\bin\\main"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {},
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    },
+    {
+      "type": "java",
+      "request": "launch",
+      "name": "Server",
+      "presentation": {
+        "group": "Mod Development - raffinatezza",
+        "order": 3
+      },
+      "projectName": "raffinatezza",
+      "mainClass": "net.neoforged.devlaunch.Main",
+      "args": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\serverRunProgramArgs.txt"
+      ],
+      "vmArgs": [
+        "@E:\\CreatedMods\\raffinatezza\\build\\moddev\\serverRunVmArgs.txt",
+        "-Dfml.modFolders\u003draffinatezza%%E:\\CreatedMods\\raffinatezza\\bin\\main"
+      ],
+      "cwd": "${workspaceFolder}\\run",
+      "env": {},
+      "console": "internalConsole",
+      "shortenCommandLine": "none"
+    }
+  ]
+}
