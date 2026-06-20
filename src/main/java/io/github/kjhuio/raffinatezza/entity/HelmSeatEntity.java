@@ -147,11 +147,12 @@ public class HelmSeatEntity extends Entity {
         Vector3d linearCorrection = new Vector3d();
         Vector3d angularCorrection = new Vector3d();
         boolean hasBalloons = hasBalloonBlocks(subLevel);
-        boolean canFloat = canFloat(subLevel);
+        boolean grounded = isGrounded(subLevel);
+        boolean onFluid = isOnFluid(subLevel);
 
         int throttle = (inputForward ? 1 : 0) - (inputBackward ? 1 : 0);
-        // Allow movement when water or lava is below
-        if (throttle != 0 && canFloat) {
+        // Eureka-like: allow movement when grounded or on water/lava
+        if (throttle != 0 && (grounded || onFluid)) {
             Vector3d targetHorizontal = new Vector3d(forward).mul(CRUISE_SPEED * throttle);
             Vector3d currentHorizontal = new Vector3d(linearVelocity.x, 0.0, linearVelocity.z);
             linearCorrection.add(targetHorizontal.sub(currentHorizontal).mul(LINEAR_RESPONSE));
@@ -171,8 +172,8 @@ public class HelmSeatEntity extends Entity {
         handle.addLinearAndAngularVelocity(linearCorrection, angularCorrection);
         stabilize(
                 subLevel,
-                inputForward && canFloat,
-                inputBackward && canFloat,
+                inputForward && (grounded || onFluid),
+                inputBackward && (grounded || onFluid),
                 inputLeft,
                 inputRight,
                 inputUp && hasBalloons,
@@ -249,7 +250,18 @@ public class HelmSeatEntity extends Entity {
         return false;
     }
 
-    private boolean canFloat(ServerSubLevel subLevel) {
+    private boolean isGrounded(ServerSubLevel subLevel) {
+        AABB bounds = subLevel.boundingBox().toMojang();
+        double y = bounds.minY - GROUND_CLEARANCE;
+        return hasCollisionBelow(bounds.minX, y, bounds.minZ)
+                || hasCollisionBelow(bounds.minX, y, bounds.maxZ)
+                || hasCollisionBelow(bounds.maxX, y, bounds.minZ)
+                || hasCollisionBelow(bounds.maxX, y, bounds.maxZ)
+                || hasCollisionBelow((bounds.minX + bounds.maxX) * 0.5, y,
+                (bounds.minZ + bounds.maxZ) * 0.5);
+    }
+
+    private boolean isOnFluid(ServerSubLevel subLevel) {
         AABB bounds = subLevel.boundingBox().toMojang();
         double y = bounds.minY - GROUND_CLEARANCE;
         return hasFluidBelow(bounds.minX, y, bounds.minZ)
@@ -264,6 +276,12 @@ public class HelmSeatEntity extends Entity {
         BlockPos pos = BlockPos.containing(x, y, z);
         BlockState state = level().getBlockState(pos);
         return state.getBlock() == Blocks.WATER || state.getBlock() == Blocks.LAVA;
+    }
+
+    private boolean hasCollisionBelow(double x, double y, double z) {
+        BlockPos pos = BlockPos.containing(x, y, z);
+        BlockState state = level().getBlockState(pos);
+        return !state.getCollisionShape(level(), pos).isEmpty();
     }
 
     private static void addSpeedLimitCorrection(Vector3d velocity, Vector3d correction, double maxSpeed) {
