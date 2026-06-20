@@ -18,6 +18,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.phys.AABB;
@@ -147,9 +148,11 @@ public class HelmSeatEntity extends Entity {
         Vector3d angularCorrection = new Vector3d();
         boolean hasBalloons = hasBalloonBlocks(subLevel);
         boolean grounded = isGrounded(subLevel);
+        boolean onWater = isOnWater(subLevel);
 
         int throttle = (inputForward ? 1 : 0) - (inputBackward ? 1 : 0);
-        if (throttle != 0 && !grounded) {
+        // Allow movement when grounded OR when on water
+        if (throttle != 0 && (!grounded && !onWater)) {
             Vector3d targetHorizontal = new Vector3d(forward).mul(CRUISE_SPEED * throttle);
             Vector3d currentHorizontal = new Vector3d(linearVelocity.x, 0.0, linearVelocity.z);
             linearCorrection.add(targetHorizontal.sub(currentHorizontal).mul(LINEAR_RESPONSE));
@@ -169,8 +172,8 @@ public class HelmSeatEntity extends Entity {
         handle.addLinearAndAngularVelocity(linearCorrection, angularCorrection);
         stabilize(
                 subLevel,
-                inputForward && !grounded,
-                inputBackward && !grounded,
+                inputForward && !grounded && !onWater,
+                inputBackward && !grounded && !onWater,
                 inputLeft,
                 inputRight,
                 inputUp && hasBalloons,
@@ -258,6 +261,23 @@ public class HelmSeatEntity extends Entity {
                 (bounds.minZ + bounds.maxZ) * 0.5);
     }
 
+    private boolean isOnWater(ServerSubLevel subLevel) {
+        AABB bounds = subLevel.boundingBox().toMojang();
+        double y = bounds.minY + GROUND_CLEARANCE;
+        return hasWaterAt(bounds.minX, y, bounds.minZ)
+                || hasWaterAt(bounds.minX, y, bounds.maxZ)
+                || hasWaterAt(bounds.maxX, y, bounds.minZ)
+                || hasWaterAt(bounds.maxX, y, bounds.maxZ)
+                || hasWaterAt((bounds.minX + bounds.maxX) * 0.5, y,
+                (bounds.minZ + bounds.maxZ) * 0.5);
+    }
+
+    private boolean hasWaterAt(double x, double y, double z) {
+        BlockPos pos = BlockPos.containing(x, y, z);
+        BlockState state = level().getBlockState(pos);
+        return state.getMaterial().isReplaceable() && (state.getBlock() == Blocks.WATER || state.getBlock() == Blocks.FLOWING_WATER);
+    }
+
     private boolean hasCollisionBelow(double x, double y, double z) {
         BlockPos pos = BlockPos.containing(x, y, z);
         BlockState state = level().getBlockState(pos);
@@ -325,4 +345,3 @@ public class HelmSeatEntity extends Entity {
         tag.putDouble("local_z", localPos.z);
     }
 }
-
