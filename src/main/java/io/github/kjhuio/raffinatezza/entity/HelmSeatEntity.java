@@ -152,7 +152,7 @@ public class HelmSeatEntity extends Entity {
 
         int throttle = (inputForward ? 1 : 0) - (inputBackward ? 1 : 0);
         // Allow movement when grounded OR when on water
-        if (throttle != 0 && (!grounded && !onWater)) {
+        if (throttle != 0 && (grounded || onWater)) {
             Vector3d targetHorizontal = new Vector3d(forward).mul(CRUISE_SPEED * throttle);
             Vector3d currentHorizontal = new Vector3d(linearVelocity.x, 0.0, linearVelocity.z);
             linearCorrection.add(targetHorizontal.sub(currentHorizontal).mul(LINEAR_RESPONSE));
@@ -172,8 +172,8 @@ public class HelmSeatEntity extends Entity {
         handle.addLinearAndAngularVelocity(linearCorrection, angularCorrection);
         stabilize(
                 subLevel,
-                inputForward && !grounded && !onWater,
-                inputBackward && !grounded && !onWater,
+                inputForward && (grounded || onWater),
+                inputBackward && (grounded || onWater),
                 inputLeft,
                 inputRight,
                 inputUp && hasBalloons,
