@@ -275,7 +275,7 @@ public class HelmSeatEntity extends Entity {
     private boolean hasWaterAt(double x, double y, double z) {
         BlockPos pos = BlockPos.containing(x, y, z);
         BlockState state = level().getBlockState(pos);
-        return state.getMaterial().isReplaceable() && (state.getBlock() == Blocks.WATER || state.getBlock() == Blocks.FLOWING_WATER);
+        return state.getBlock() == Blocks.WATER;
     }
 
     private boolean hasCollisionBelow(double x, double y, double z) {
