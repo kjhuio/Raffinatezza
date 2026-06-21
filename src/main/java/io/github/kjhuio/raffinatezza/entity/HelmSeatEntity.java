@@ -151,8 +151,8 @@ public class HelmSeatEntity extends Entity {
         boolean onFluid = isOnFluid(subLevel);
 
         int throttle = (inputForward ? 1 : 0) - (inputBackward ? 1 : 0);
-        // Eureka-like: allow movement when grounded or on water/lava
-        if (throttle != 0 && (grounded || onFluid)) {
+        // Eureka-like: allow movement when not grounded (airborne) or on water/lava (liquid exceptions)
+        if (throttle != 0 && (!grounded || onFluid)) {
             Vector3d targetHorizontal = new Vector3d(forward).mul(CRUISE_SPEED * throttle);
             Vector3d currentHorizontal = new Vector3d(linearVelocity.x, 0.0, linearVelocity.z);
             linearCorrection.add(targetHorizontal.sub(currentHorizontal).mul(LINEAR_RESPONSE));
@@ -172,8 +172,8 @@ public class HelmSeatEntity extends Entity {
         handle.addLinearAndAngularVelocity(linearCorrection, angularCorrection);
         stabilize(
                 subLevel,
-                inputForward && (grounded || onFluid),
-                inputBackward && (grounded || onFluid),
+                inputForward && (!grounded || onFluid),
+                inputBackward && (!grounded || onFluid),
                 inputLeft,
                 inputRight,
                 inputUp && hasBalloons,
